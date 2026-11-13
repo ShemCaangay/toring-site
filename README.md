@@ -9,3 +9,5 @@ A static, dependency-free site (HTML + CSS + one JS file, raw WebGL) in the **sa
 - **Fonts** (`fonts/`): JetBrains Mono (SIL OFL), the same files as the app.
 - `prefers-reduced-motion` turns off transitions and ambient animation (scenes still follow the scroll); `prefers-reduced-transparency` makes the glass opaque.
 - Hosting: any static host works (GitHub Pages, Netlify, ...). The folder is not part of the installer (`package.json` build.files is an allow-list).
+
+_Deployed automatically from this repo to https://toringapp.vercel.app on every push to `main`._
