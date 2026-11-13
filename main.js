@@ -217,13 +217,16 @@
   const canvas = $('#gl');
   let gl = null, soft = false;                                     // the WebGL context is opened after the first paint (see openGL)
   let prog, ready = false, buffers = [], rBuf, U = {}, A = {}, dpr = 1, dprCap = Math.min(devicePixelRatio || 1, 1.75);
-  // A software renderer (SwiftShader, llvmpipe, Microsoft Basic Render) cannot animate thousands of particles smoothly: there the page uses the plain CSS
-  // background and shows the screenshots as ordinary fades. Add ?gl to the address to force the particles anyway (used for testing).
+  // The browser is asked not to hand out a software-rendered WebGL context (failIfMajorPerformanceCaveat): thousands of particles cannot animate smoothly on
+  // SwiftShader, llvmpipe or Microsoft Basic Render, and creating that context is slow. There the page keeps the plain CSS background and the screenshots fade in
+  // as ordinary images. Add ?gl to the address to force the particles anyway (used for testing).
   function openGL() {
-    gl = canvas.getContext('webgl', { alpha: true, premultipliedAlpha: true, antialias: false, powerPreference: 'high-performance' });
-    const rinfo = gl && gl.getExtension('WEBGL_debug_renderer_info');
-    soft = !!rinfo && /swiftshader|llvmpipe|software|basic render/i.test(String(gl.getParameter(rinfo.UNMASKED_RENDERER_WEBGL))) && !/[?&]gl\b/.test(location.search);
-    if (!gl || soft) { root.classList.add('no-gl'); return false; }
+    const opts = { alpha: true, premultipliedAlpha: true, antialias: false, powerPreference: 'high-performance' };
+    if (!/[?&]gl\b/.test(location.search)) opts.failIfMajorPerformanceCaveat = true;
+    gl = canvas.getContext('webgl', opts);
+    const info = gl && gl.getExtension('WEBGL_debug_renderer_info');         // SwiftShader is not flagged by the option above in every browser, so the renderer name is checked too
+    soft = !gl || (!!info && /swiftshader|llvmpipe|basic render/i.test(String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL))) && opts.failIfMajorPerformanceCaveat === true);
+    if (soft) { if (gl) { const lose = gl.getExtension('WEBGL_lose_context'); if (lose) lose.loseContext(); } gl = null; root.classList.add('no-gl'); return false; }
     return true;
   }
   const tick = () => new Promise(r => setTimeout(r, 0));           // let the browser paint and handle input between the heavy steps
