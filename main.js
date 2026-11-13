@@ -32,7 +32,8 @@
     $$('[data-size]').forEach(e => { e.textContent = mb(d.size); });
     $$('[data-dl]').forEach(a => {
       a.href = d.url; a.removeAttribute('target');
-      const label = `Download TORING ${d.tag} for Windows (${mb(d.size)})`;
+      const clone = a.cloneNode(true); clone.querySelectorAll('[aria-hidden="true"]').forEach(x => x.remove());
+      const vis = clone.textContent.replace(/\s+/g, ' ').trim(), label = (vis.includes(d.tag) ? vis : vis + ', TORING ' + d.tag) + ' (' + mb(d.size) + ')';
       if (!a.closest('.foot')) a.setAttribute('aria-label', label); else a.title = label;
     });
     root.dataset.release = d.tag;
@@ -54,7 +55,7 @@
   /* ------------------------------------------------------------------ text: split into letters / words for the reveal */
   $$('.rv').forEach(el => {
     if (el.dataset.rv === 'letters') {
-      el.setAttribute('aria-label', el.textContent.replace(/\s+/g, ' ').trim());
+      el.setAttribute('aria-label', $$('.ln', el).map(l => l.textContent.trim()).join(' '));
       $$('.ln', el).forEach((ln, li) => {
         const t = ln.textContent; ln.textContent = ''; ln.setAttribute('aria-hidden', 'true'); let i = 0;
         t.split(' ').forEach((w, wi, arr) => {
@@ -215,9 +216,10 @@
   /* ------------------------------------------------------------------ WebGL */
   const canvas = $('#gl');
   const gl = canvas.getContext('webgl', { alpha: true, premultipliedAlpha: true, antialias: false, powerPreference: 'high-performance' });
-  let prog, buffers = [], rBuf, U = {}, A = {}, dpr = 1, dprCap = Math.min(devicePixelRatio || 1, 1.75);
+  let prog, ready = false, buffers = [], rBuf, U = {}, A = {}, dpr = 1, dprCap = Math.min(devicePixelRatio || 1, 1.75);
   if (!gl) root.classList.add('no-gl');
-  else {
+  const tick = () => new Promise(r => setTimeout(r, 0));           // let the browser paint and handle input between the heavy steps
+  async function initGL() {
     const VS = `attribute vec4 aA; attribute vec4 aB; attribute vec3 aR;
 uniform float uMix, uTime, uAspect, uPx, uCamA, uCamB, uImgA, uImgB; uniform vec2 uOffA, uOffB, uRot, uPan; uniform vec3 uPalA[3]; uniform vec3 uPalB[3];
 varying vec3 vCol; varying float vA;
@@ -245,17 +247,20 @@ void main(){
 void main(){ vec2 d = gl_PointCoord - 0.5; float r = dot(d, d) * 4.0; if (r > 1.0) discard; float a = pow(1.0 - r, 1.4) * vA * 0.9; gl_FragColor = vec4(vCol * a, a); }`;
     const sh = (t, src) => { const s = gl.createShader(t); gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; };
     try {
+      await tick();
       prog = gl.createProgram(); gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS)); gl.linkProgram(prog);
       if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
       gl.useProgram(prog);
+      await tick();
       ['uMix', 'uTime', 'uAspect', 'uPx', 'uCamA', 'uCamB', 'uOffA', 'uOffB', 'uRot', 'uPan', 'uImgA', 'uImgB'].forEach(n => { U[n] = gl.getUniformLocation(prog, n); });
       U.palA = gl.getUniformLocation(prog, 'uPalA[0]'); U.palB = gl.getUniformLocation(prog, 'uPalB[0]');
       ['aA', 'aB', 'aR'].forEach(n => { A[n] = gl.getAttribLocation(prog, n); gl.enableVertexAttribArray(A[n]); });
-      SHAPES.forEach((f, si) => { const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, si === 6 ? shuffled(f(), 906) : f(), gl.DYNAMIC_DRAW); buffers.push(b); });
+      for (let si = 0; si < SHAPES.length; si++) { const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, si === 6 ? shuffled(SHAPES[si](), 906) : SHAPES[si](), gl.DYNAMIC_DRAW); buffers.push(b); await tick(); }
       const rr = rngOf(5), ra = new Float32Array(C * 3); for (let i = 0; i < C; i++) { ra[i * 3] = rr(); ra[i * 3 + 1] = .6 + rr() * 1.0; ra[i * 3 + 2] = i < K ? 1 : 0; }
       rBuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, rBuf); gl.bufferData(gl.ARRAY_BUFFER, ra, gl.STATIC_DRAW);
       gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); gl.disable(gl.DEPTH_TEST);
-    } catch (err) { console.warn('[toring] WebGL setup failed, using the CSS background:', err.message); root.classList.add('no-gl'); prog = null; }
+      ready = true;
+    } catch (err) { console.warn('[toring] WebGL setup failed, using the CSS background:', err.message); root.classList.add('no-gl'); prog = null; ready = false; }
   }
 
   /* ------------------------------------------------------------------ the app showcase (scene 6): the only place the app screenshots appear.
@@ -279,7 +284,7 @@ void main(){ vec2 d = gl_PointCoord - 0.5; float r = dot(d, d) * 4.0; if (r > 1.
     return { u, v, w, n };
   }
   function uploadStipple() {
-    if (!prog || loaded < SRC.length || !LAY.cards.length) return;
+    if (!ready || loaded < SRC.length || !LAY.cards.length) return;
     const key = LAY.mode + LAY.cards.map(c => c.ar.toFixed(3) + ':' + c.cropY).join();      // re-sample only when the arrangement (row / grid) changes
     if (key !== stipKey) {
       const tot = LAY.cards.reduce((a, c) => a + c.weight, 0); let left = K;
@@ -333,7 +338,7 @@ void main(){ vec2 d = gl_PointCoord - 0.5; float r = dot(d, d) * 4.0; if (r > 1.
   addEventListener('pointermove', e => { pm.tx = (e.clientX / innerWidth - .5) * 2; pm.ty = (e.clientY / innerHeight - .5) * 2; pm.cx = e.clientX; pm.cy = e.clientY; stage.classList.add('hover'); wake(); }, { passive: true });
   document.documentElement.addEventListener('pointerleave', () => stage.classList.remove('hover'));
   const numcols = $('#numcols'), pupil = $('#pupil');
-  const dbg = window.__toring = { s: 0, active: -1, frames: 0, avgMs: 0, gl: !!prog, dpr: 1, K, shot: [], lay: [], stippled: () => (stipple ? stipple.length : 0) };
+  const dbg = window.__toring = { s: 0, active: -1, frames: 0, avgMs: 0, gl: !!gl, dpr: 1, K, shot: [], lay: [], stippled: () => (stipple ? stipple.length : 0) };
   let raf = 0, last = 0, time = 0, s = 0, slow = 0, nSlow = 0, frames = 0;
   const wake = () => { if (!raf && !document.hidden) raf = requestAnimationFrame(frame); };
   function frame(now) {
@@ -356,7 +361,7 @@ void main(){ vec2 d = gl_PointCoord - 0.5; float r = dot(d, d) * 4.0; if (r > 1.
       const nx = (ox * 2 / asp) / z, ny = (oy * 2) / z;
       pupil.style.transform = `translate3d(${((nx * .5 + .5) * canvas.clientWidth + (reduce ? 0 : pm.x * 9)).toFixed(1)}px, ${((1 - (ny * .5 + .5)) * canvas.clientHeight + (reduce ? 0 : pm.y * 9)).toFixed(1)}px, 0)`;
     }
-    if (prog) draw(asp0());
+    if (ready) draw(asp0());
     frames++; dbg.s = s; dbg.active = active; dbg.frames = frames;
     // adaptive quality: if frames stay slow, render fewer pixels
     if (!reduce && !document.hidden) { slow += dtRaw; nSlow++; if (nSlow >= 90) { const avg = slow / nSlow * 1000; dbg.avgMs = +avg.toFixed(1); if (avg > 24 && dprCap > 1) { dprCap = Math.max(1, dprCap - .25); resize(); } slow = 0; nSlow = 0; } }
@@ -392,7 +397,8 @@ void main(){ vec2 d = gl_PointCoord - 0.5; float r = dot(d, d) * 4.0; if (r > 1.
   addEventListener('hashchange', hashScene);
   resize(); readScroll(); s = tgt; hashScene(); readScroll(); s = tgt;
   setActive(0);
-  loadStipples();
+  // first paint first: the particles and the screenshot stipples are set up right after it, in small steps
+  requestAnimationFrame(() => setTimeout(() => { if (gl) initGL().then(() => { if (ready) { loadStipples(); resize(); wake(); } }); }, 0));
   document.fonts && document.fonts.ready.then(() => { measure(); layoutAll(); wake(); });
   wake();
 })();
