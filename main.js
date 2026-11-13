@@ -33,7 +33,7 @@
     $$('[data-dl]').forEach(a => {
       a.href = d.url; a.removeAttribute('target');
       const clone = a.cloneNode(true); clone.querySelectorAll('[aria-hidden="true"]').forEach(x => x.remove());
-      const vis = clone.textContent.replace(/\s+/g, ' ').trim(), label = (vis.includes(d.tag) ? vis : vis + ', TORING ' + d.tag) + ' (' + mb(d.size) + ')';
+      const vis = [...clone.childNodes].map(n => n.textContent.replace(/\s+/g, ' ').trim()).filter(Boolean).join(' '), label = (vis.includes(d.tag) ? vis : vis + ', TORING ' + d.tag) + ' (' + mb(d.size) + ')';
       if (!a.closest('.foot')) a.setAttribute('aria-label', label); else a.title = label;
     });
     root.dataset.release = d.tag;
@@ -217,7 +217,10 @@
   const canvas = $('#gl');
   const gl = canvas.getContext('webgl', { alpha: true, premultipliedAlpha: true, antialias: false, powerPreference: 'high-performance' });
   let prog, ready = false, buffers = [], rBuf, U = {}, A = {}, dpr = 1, dprCap = Math.min(devicePixelRatio || 1, 1.75);
-  if (!gl) root.classList.add('no-gl');
+  // A software renderer (SwiftShader, llvmpipe, Microsoft Basic Render) cannot animate thousands of particles smoothly: there the page uses the plain CSS background
+  // and shows the screenshots as ordinary fades. Add ?gl to the address to force the particles anyway (used for testing).
+  const rinfo = gl && gl.getExtension('WEBGL_debug_renderer_info'), soft = !!rinfo && /swiftshader|llvmpipe|software|basic render/i.test(String(gl.getParameter(rinfo.UNMASKED_RENDERER_WEBGL))) && !/[?&]gl\b/.test(location.search);
+  if (!gl || soft) root.classList.add('no-gl');
   const tick = () => new Promise(r => setTimeout(r, 0));           // let the browser paint and handle input between the heavy steps
   async function initGL() {
     const VS = `attribute vec4 aA; attribute vec4 aB; attribute vec3 aR;
@@ -338,7 +341,7 @@ void main(){ vec2 d = gl_PointCoord - 0.5; float r = dot(d, d) * 4.0; if (r > 1.
   addEventListener('pointermove', e => { pm.tx = (e.clientX / innerWidth - .5) * 2; pm.ty = (e.clientY / innerHeight - .5) * 2; pm.cx = e.clientX; pm.cy = e.clientY; stage.classList.add('hover'); wake(); }, { passive: true });
   document.documentElement.addEventListener('pointerleave', () => stage.classList.remove('hover'));
   const numcols = $('#numcols'), pupil = $('#pupil');
-  const dbg = window.__toring = { s: 0, active: -1, frames: 0, avgMs: 0, gl: !!gl, dpr: 1, K, shot: [], lay: [], stippled: () => (stipple ? stipple.length : 0) };
+  const dbg = window.__toring = { s: 0, active: -1, frames: 0, avgMs: 0, gl: !!gl && !soft, dpr: 1, K, shot: [], lay: [], stippled: () => (stipple ? stipple.length : 0) };
   let raf = 0, last = 0, time = 0, s = 0, slow = 0, nSlow = 0, frames = 0;
   const wake = () => { if (!raf && !document.hidden) raf = requestAnimationFrame(frame); };
   function frame(now) {
@@ -398,7 +401,7 @@ void main(){ vec2 d = gl_PointCoord - 0.5; float r = dot(d, d) * 4.0; if (r > 1.
   resize(); readScroll(); s = tgt; hashScene(); readScroll(); s = tgt;
   setActive(0);
   // first paint first: the particles and the screenshot stipples are set up right after it, in small steps
-  requestAnimationFrame(() => setTimeout(() => { if (gl) initGL().then(() => { if (ready) { loadStipples(); resize(); wake(); } }); }, 0));
+  requestAnimationFrame(() => setTimeout(() => { if (gl && !soft) initGL().then(() => { if (ready) { loadStipples(); resize(); wake(); } }); }, 0));
   document.fonts && document.fonts.ready.then(() => { measure(); layoutAll(); wake(); });
   wake();
 })();
